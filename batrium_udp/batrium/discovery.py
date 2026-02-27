@@ -21,7 +21,7 @@ DEVICE_MODEL        = "WatchMon Core"
 DEVICE_NAME         = "Batrium"
 
 
-ADDON_VERSION       = "1.0.0"
+ADDON_VERSION       = "1.0.1"
 ADDON_URL           = "https://github.com/rkflyer/batrium-ha-addon"
 
 
