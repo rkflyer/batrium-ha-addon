@@ -24,7 +24,7 @@ Listens for Batrium WatchMon UDP broadcasts on your local network and publishes 
 | `mqtt_username` | _(empty)_ | MQTT username — leave blank if your broker has no authentication |
 | `mqtt_password` | _(empty)_ | MQTT password |
 | `udp_port` | `18542` | Batrium UDP broadcast port — don't change unless you have a specific reason |
-| `system_name` | `van` | Slug used in MQTT topic names: `batrium/{system_name}/state`. Change this if you have multiple Batrium systems on the same broker |
+| `system_name` | `bms` | Slug used in MQTT topic names: `batrium/{system_name}/state`. Change this if you have multiple Batrium systems on the same broker |
 | `log_level` | `info` | Logging verbosity: `debug`, `info`, `warning`, `error` |
 
 ### Using an external MQTT broker

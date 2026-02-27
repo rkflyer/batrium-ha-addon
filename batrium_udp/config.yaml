@@ -21,7 +21,7 @@ options:
   mqtt_username: ""
   mqtt_password: ""
   udp_port: 18542
-  system_name: "van"
+  system_name: "bms"
   log_level: "info"
 
 schema:
