@@ -3,7 +3,9 @@ description: "Listens for Batrium WatchMon UDP broadcasts and publishes to Home 
 version: "1.0.0"
 slug: "batrium_udp"
 url: "https://github.com/rkflyer/batrium-ha-addon"
+startup: application
 init: false
+host_network: true
 homeassistant: "2023.1.0"
 
 arch:
