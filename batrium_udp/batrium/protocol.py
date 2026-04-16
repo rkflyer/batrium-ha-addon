@@ -235,7 +235,7 @@ def parse_3f34(data: bytes) -> dict | None:
         "op_status_name":  op_name,
         "soc_pct":         round((soc_raw * 0.5) - 5, 1),   # WatchMon estimate
         "shunt_soc_pct":   round(struct.unpack_from("<h", data, 22)[0] / 100.0, 2),  # Coulomb counted
-        "shunt_volt_mv":   struct.unpack_from("<h", data, 12)[0] * 10,  # int16/100=V → ×10=mV
+        "shunt_volt_mv":   struct.unpack_from("<H", data, 12)[0] * 10,  # uint16/100=V → ×10=mV
         "shunt_ma":        shunt_ma,                          # mA, negative=discharge positive=charge
         "shunt_watt":      round(struct.unpack_from("<f", data, 18)[0], 1),  # W, same sign
         "relay_1":         bool(data[39]),
