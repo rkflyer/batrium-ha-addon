@@ -13,6 +13,7 @@ Run for local dev: python3 batrium/main.py  (uses env vars or defaults)
 """
 
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -291,7 +292,13 @@ async def main() -> None:
         # still holds the port. The WatchMon always broadcasts to 18542
         # (fixed in firmware), so stop the other listener — do not change
         # udp_port to sidestep it.
-        if exc.errno == 98 or "Address in use" in str(exc):
+        #
+        # errno.EADDRINUSE rather than a literal: it is 98 on Linux (the addon
+        # container) but 48 on macOS/BSD, and the strerror text differs too —
+        # musl says "Address in use", glibc "Address already in use". Matching
+        # on either literal silently misses the case when running the module
+        # directly for local development.
+        if exc.errno == errno.EADDRINUSE:
             logger.error(
                 "UDP port %d is already in use — another program is listening "
                 "on it. If you have a Batrium/WatchMon UDP listener running "
