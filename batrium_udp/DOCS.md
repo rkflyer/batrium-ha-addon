@@ -70,5 +70,23 @@ Some fields are missing from the state JSON because your WatchMon firmware does
 not transmit the message types those entities come from (older WatchMon
 generations, e.g. WatchMon1, only send per-cell messages). Since 1.0.4 the
 addon's templates tolerate missing fields: the affected entities simply show
-"unknown" and no warning is logged. Upgrading the WatchMon (with an IsoMon)
-restores the full entity set.
+"unknown" and no warning is logged. To find out which messages your WatchMon is
+actually sending, see the next entry.
+
+**Some entities are always "unknown"**
+An entity has no data because the message carrying it never arrived. Since 1.0.5
+the log names each message type the first time it is seen, so you can tell which
+you are getting:
+
+```text
+Receiving 0x415A CellNodeStatus (100 bytes)
+Receiving 0x3E33 PackStats (48 bytes)
+```
+
+The pack-level entities (cell voltage/temperature min-max-average, cells
+balancing, bypass currents) come from `0x3E33`, and the shunt entities (current,
+power, pack voltage, SOC) from `0x3F34`. If a type is missing from the log, your
+WatchMon is not transmitting it and those entities cannot populate — older
+generations and firmware send a subset. If instead you see a warning that a
+message "arrived but is too short to decode", or that a type is unrecognised,
+please raise an issue: that is data the addon should be using and is not.

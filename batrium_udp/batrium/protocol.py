@@ -28,6 +28,28 @@ MSG_CELL_STATS       = 0x3E33  # Pack stats, SW ≥ 2.15;   300ms
 MSG_STATUS_FAST      = 0x3F33  # SOC, relays, contactors (older FW)
 MSG_STATUS_SHUNT     = 0x3F34  # ShuntCurrent/Voltage/Power/SOC (FW ≥ 2.15); 300ms
 
+MSG_NAMES = {
+    MSG_CELL_NODE:        "0x4232 CellNode",
+    MSG_CELL_NODE_STATUS: "0x415A CellNodeStatus",
+    MSG_STATUS_RAPID_OLD: "0x3E5A PackStats (legacy)",
+    MSG_CELL_STATS:       "0x3E33 PackStats",
+    MSG_STATUS_FAST:      "0x3F33 SystemStatus",
+    MSG_STATUS_SHUNT:     "0x3F34 ShuntStatus",
+}
+
+# Smallest packet each parser can decode. Single source of truth: the parsers
+# guard on these, and main.py reports the first packet of each type against
+# them — so a message that arrives too short to decode is announced in the log
+# rather than dropped where nobody can see it.
+MIN_LEN = {
+    MSG_CELL_NODE:        52,
+    MSG_CELL_NODE_STATUS: 12,   # header + array header; per-node extent checked in parse_415a
+    MSG_STATUS_RAPID_OLD: 48,
+    MSG_CELL_STATS:       48,
+    MSG_STATUS_FAST:      62,
+    MSG_STATUS_SHUNT:     50,
+}
+
 # TODO: decode additional packets for HA energy dashboard integration
 #   0x5432  Msg_5432_DailySession     — DailySessionCumulShuntkWhCharge/Dischg, peak currents
 #   0x7832  Msg_7832_HwShuntMetrics   — hardware shunt metrics, lifetime totals
@@ -85,7 +107,7 @@ def parse_4232(data: bytes) -> dict | None:
     per cell per broadcast cycle; volt_min == volt_max == that cell's voltage.
     With a K9 board, there is one message covering all cells on the board.
     """
-    if len(data) < 52:
+    if len(data) < MIN_LEN[MSG_CELL_NODE]:
         _LOGGER.debug("0x4232 too short: %d bytes", len(data))
         return None
     op = data[20]
@@ -115,7 +137,7 @@ def parse_3e33(data: bytes) -> dict | None:
     NOTE: shunt/pack current is NOT in this packet.  It lives in 0x3233 (LiveDisplay)
     or equivalent on newer firmware.  Offset 38 = MinBypassSession (Ah), 42 = MaxBypassSession.
     """
-    if len(data) < 48:
+    if len(data) < MIN_LEN[MSG_CELL_STATS]:
         _LOGGER.debug("0x3E33/3E5A too short: %d bytes", len(data))
         return None
     return {
@@ -162,7 +184,7 @@ def parse_415a(data: bytes) -> dict | None:
       [4 + n*11 + 8:10] bypass_ma (int16le, mA)
       [4 + n*11 + 10]  op_status
     """
-    min_len = 8 + 4  # header + 4-byte array header
+    min_len = MIN_LEN[MSG_CELL_NODE_STATUS]  # header + 4-byte array header
     if len(data) < min_len:
         _LOGGER.debug("0x415A too short: %d bytes", len(data))
         return None
@@ -215,7 +237,7 @@ def parse_3f34(data: bytes) -> dict | None:
       data[25]     op_status
       data[39:42]  relay_1-3     (tentative, observed all zero)
     """
-    if len(data) < 50:
+    if len(data) < MIN_LEN[MSG_STATUS_SHUNT]:
         _LOGGER.debug("0x3F34 too short: %d bytes", len(data))
         return None
     soc_raw   = data[24]
@@ -249,7 +271,7 @@ def parse_3f33(data: bytes) -> dict | None:
     Parse Combined Status Fast (0x3F33, 80 bytes, 1.55s).
     SOC, system op status, shunt status, relay and contactor states.
     """
-    if len(data) < 62:
+    if len(data) < MIN_LEN[MSG_STATUS_FAST]:
         _LOGGER.debug("0x3F33 too short: %d bytes", len(data))
         return None
     soc_raw     = data[32]

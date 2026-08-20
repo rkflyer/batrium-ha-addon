@@ -1,3 +1,9 @@
+## 1.0.5
+
+- Add: the log now names each Batrium message type the first time it arrives — `Receiving 0x3E33 PackStats (48 bytes)`. Which messages a WatchMon transmits varies by generation and firmware, and until now an entity that never populated looked the same whether the data was never sent, arrived too short to decode, or arrived in a message type this addon does not recognise. One line per type at startup, at the default log level, tells you which.
+- Add: a message that arrives too short to decode, or in an unrecognised type, is now reported as a warning asking you to raise an issue. Previously both were discarded at debug level, so a WatchMon whose data was being dropped was indistinguishable from one that sent nothing.
+- Internal: minimum packet lengths moved to `protocol.MIN_LEN`, so the parsers and the log report against the same numbers.
+
 ## 1.0.4
 
 - Fix: missing state fields no longer log-spam HA. Auto-discovery templates now use `value_json.get()`, so fields absent from the state JSON (older WatchMon generations that don't transmit 0x3E33/0x3F34, e.g. WatchMon1) render as "unknown" instead of raising a "dict object has no attribute" warning every second. Closes #2.

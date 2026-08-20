@@ -36,9 +36,12 @@ from batrium.protocol import (  # noqa: E402
     MSG_CELL_STATS,
     MSG_STATUS_FAST,
     MSG_STATUS_SHUNT,
+    MSG_NAMES,
+    MIN_LEN,
     NODE_STATUS_NAMES,
 )
 from batrium.discovery import (  # noqa: E402
+    ADDON_URL,
     build_discovery_configs,
     build_node_discovery_configs,
     build_node_delete_configs,
@@ -92,6 +95,43 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
         self._system_name  = system_name
         self._sys_id       = sys_id
         self._seen_nodes: set[int] = set()
+        self._seen_msg_types: set[int] = set()
+
+    def _report_first_sight(self, msg_type: int, size: int) -> None:
+        """
+        Announce each message type the first time it arrives.
+
+        Which messages a WatchMon transmits varies by generation and firmware,
+        and an entity that never populates looks identical whether the data was
+        never sent, arrived malformed, or arrived in a type we don't decode.
+        Logging one line per type at INFO makes the difference visible in the
+        default log, so a report of "these entities are always unknown" carries
+        its own diagnosis rather than needing a second round-trip.
+
+        Once per type, not per packet: these arrive every 300ms.
+        """
+        logger = logging.getLogger(__name__)
+        name = MSG_NAMES.get(msg_type)
+
+        if name is None:
+            logger.warning(
+                "Unrecognised message type 0x%04X (%d bytes) — this addon does "
+                "not decode it. Please report it at %s/issues so it can be added.",
+                msg_type, size, ADDON_URL,
+            )
+            return
+
+        need = MIN_LEN.get(msg_type)
+        if need is not None and size < need:
+            logger.warning(
+                "%s arrived but is too short to decode: %d bytes, need %d. Its "
+                "entities will stay unknown. Please report this at %s/issues, "
+                "quoting your WatchMon model and firmware version.",
+                name, size, need, ADDON_URL,
+            )
+            return
+
+        logger.info("Receiving %s (%d bytes)", name, size)
 
     def datagram_received(self, data: bytes, addr: tuple) -> None:
         if len(data) < 8:
@@ -100,6 +140,10 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
         if not header:
             return
         msg_type, _sys_id = header
+
+        if msg_type not in self._seen_msg_types:
+            self._seen_msg_types.add(msg_type)
+            self._report_first_sight(msg_type, len(data))
 
         if msg_type == MSG_CELL_NODE_STATUS:
             # Preferred: all cells in one atomic snapshot
