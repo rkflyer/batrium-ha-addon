@@ -21,7 +21,7 @@ DEVICE_MODEL        = "WatchMon Core"
 DEVICE_NAME         = "Batrium"
 
 
-ADDON_VERSION       = "1.0.3"
+ADDON_VERSION       = "1.0.4"
 ADDON_URL           = "https://github.com/rkflyer/batrium-ha-addon"
 
 
@@ -48,11 +48,16 @@ def _make_sensor(
     state_class: str | None = None,
     icon: str | None = None,
 ) -> tuple[str, str]:
+    # value_json.get() keeps a missing field rendering as "unknown" instead of
+    # emitting a J2 'dict object has no attribute' warning every publish cycle.
+    # The state JSON only contains fields for message types the WatchMon
+    # actually transmits, so older/partial hardware (e.g. WatchMon1 without
+    # 0x3E33/0x3F34) must not log-spam HA. See issue #2.
     payload: dict = {
         "unique_id":          uid,
         "name":               name,
         "state_topic":        state_topic,
-        "value_template":     f"{{{{ value_json.{field} }}}}",
+        "value_template":     f"{{{{ value_json.get('{field}') }}}}",
         "availability_topic": avail_topic,
         "device":             device,
     }
@@ -76,12 +81,12 @@ def _make_binary_sensor(
     field: str,
     device_class: str | None = None,
 ) -> tuple[str, str]:
-    # Template to "ON"/"OFF" avoids Python True/False repr ambiguity
+    # .get() so a missing field yields "" (falsy -> "OFF") without a warning.
     payload: dict = {
         "unique_id":          uid,
         "name":               name,
         "state_topic":        state_topic,
-        "value_template":     f"{{% if value_json.{field} %}}ON{{% else %}}OFF{{% endif %}}",
+        "value_template":     f"{{% if value_json.get('{field}') %}}ON{{% else %}}OFF{{% endif %}}",
         "payload_on":         "ON",
         "payload_off":        "OFF",
         "availability_topic": avail_topic,

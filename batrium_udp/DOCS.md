@@ -19,7 +19,13 @@ MQTT broker port. Default: `1883`. Only change if your broker uses a non-standar
 MQTT credentials. Leave blank if your broker does not require authentication.
 
 ### `udp_port`
-The UDP port Batrium broadcasts on. Default: `18542`. Do not change unless you have a specific reason.
+The UDP port this addon *listens* on for WatchMon broadcasts. Default: `18542`.
+Important: the WatchMon always *sends* to 18542 — that is fixed in firmware
+and cannot be configured on the device. So only change this option if you have
+deliberately reconfigured your WatchMon's broadcast destination (advanced) or
+are running multiple addons that must not collide. If the addon fails to start
+with "port already in use", the fix is to stop the other listener (e.g. a
+Node-RED UDP flow), not to change this port.
 
 ### `system_name`
 A short slug used in MQTT topic names: `batrium/{system_name}/state`.
@@ -51,3 +57,18 @@ The addon stopped or lost MQTT connection. Check the log and restart the addon i
 
 **No nodes discovered**
 The WatchMon is not reachable on this network. Confirm the WatchMon and HA are on the same subnet.
+
+**Addon crashes on start with "port ... is already in use"**
+Another program is listening on the UDP port (usually 18542) — commonly a
+Node-RED UDP flow that used to do this job. Stop or disable that flow (or any
+other Batrium/WatchMon UDP listener); this addon replaces it, and two
+listeners cannot share the same port. See the `udp_port` note above — changing
+the port here does not help, because the WatchMon transmits to a fixed port.
+
+**Many "Template variable warning: 'dict object' has no attribute ..." messages in the HA log**
+Some fields are missing from the state JSON because your WatchMon firmware does
+not transmit the message types those entities come from (older WatchMon
+generations, e.g. WatchMon1, only send per-cell messages). Since 1.0.4 the
+addon's templates tolerate missing fields: the affected entities simply show
+"unknown" and no warning is logged. Upgrading the WatchMon (with an IsoMon)
+restores the full entity set.

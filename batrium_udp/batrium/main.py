@@ -280,11 +280,29 @@ async def main() -> None:
 
     loop = asyncio.get_event_loop()
     logger.info("Binding UDP on 0.0.0.0:%d", cfg["udp_port"])
-    transport, _protocol = await loop.create_datagram_endpoint(
-        lambda: BatriumUdpProtocol(publisher, cfg["system_name"], sys_id),
-        local_addr=("0.0.0.0", cfg["udp_port"]),
-        allow_broadcast=True,
-    )
+    try:
+        transport, _protocol = await loop.create_datagram_endpoint(
+            lambda: BatriumUdpProtocol(publisher, cfg["system_name"], sys_id),
+            local_addr=("0.0.0.0", cfg["udp_port"]),
+            allow_broadcast=True,
+        )
+    except OSError as exc:
+        # Common cause: another Batrium UDP listener (e.g. a Node-RED flow)
+        # still holds the port. The WatchMon always broadcasts to 18542
+        # (fixed in firmware), so stop the other listener — do not change
+        # udp_port to sidestep it.
+        if exc.errno == 98 or "Address in use" in str(exc):
+            logger.error(
+                "UDP port %d is already in use — another program is listening "
+                "on it. If you have a Batrium/WatchMon UDP listener running "
+                "(Node-RED flow, another instance of this addon, etc.), stop "
+                "it: this addon replaces it and both cannot bind the same "
+                "port. Note the WatchMon broadcasts to a fixed port, so "
+                "changing udp_port here will not help.",
+                cfg["udp_port"],
+            )
+            sys.exit(1)
+        raise
 
     logger.info("Listening for Batrium WatchMon broadcasts...")
     try:
