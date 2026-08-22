@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 # Allow running as a script: `python3 batrium/main.py`
 if __name__ == "__main__":
@@ -81,6 +82,11 @@ def load_config() -> dict:
     return cfg
 
 
+# Delivery watchdog timings (see BatriumUdpProtocol._check_delivery).
+UNDELIVERED_GRACE_S  = 30.0    # let the broker connect race the first packets
+UNDELIVERED_REPEAT_S = 300.0   # then keep saying it, so any log slice contains it
+
+
 class BatriumUdpProtocol(asyncio.DatagramProtocol):
     """
     asyncio UDP protocol: parses incoming Batrium broadcast packets and pushes
@@ -96,6 +102,45 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
         self._sys_id       = sys_id
         self._seen_nodes: set[int] = set()
         self._seen_msg_types: set[int] = set()
+        self._first_packet_at: float | None = None
+        self._last_undelivered_warn: float | None = None
+
+    def _check_delivery(self) -> None:
+        """
+        Warn while Batrium data is arriving but MQTT has never connected.
+
+        This is the gap that made a broker rejecting our credentials look like a
+        Batrium problem: the addon logs cheerfully about every node and message
+        type it finds, while not one byte reaches Home Assistant. Read from the
+        top, that log says the addon is working.
+
+        Deliberately REPEATS rather than firing once. Whoever is debugging will
+        grab some arbitrary slice of the log to paste into an issue, and the
+        slice needs to contain the reason — a single line at startup scrolls away
+        and is never seen again.
+        """
+        if self._publisher.ever_connected:
+            return
+
+        now = time.monotonic()
+        if self._first_packet_at is None:
+            self._first_packet_at = now
+            return
+        # Don't shout during normal startup: the broker connect and the first
+        # packets race each other, and a warning at t=0 would be noise.
+        if now - self._first_packet_at < UNDELIVERED_GRACE_S:
+            return
+        if (self._last_undelivered_warn is not None
+                and now - self._last_undelivered_warn < UNDELIVERED_REPEAT_S):
+            return
+
+        self._last_undelivered_warn = now
+        logging.getLogger(__name__).warning(
+            "Receiving Batrium data, but MQTT has never connected — NOTHING has "
+            "reached Home Assistant and no entities will appear. Any 'node "
+            "discovered' lines above were queued, not delivered. See the 'MQTT "
+            "connect ... failed' error for the reason; the Batrium side is fine."
+        )
 
     def _report_first_sight(self, msg_type: int, size: int) -> None:
         """
@@ -145,6 +190,9 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
             self._seen_msg_types.add(msg_type)
             self._report_first_sight(msg_type, len(data))
 
+        # Data is arriving; is any of it actually getting out?
+        self._check_delivery()
+
         if msg_type == MSG_CELL_NODE_STATUS:
             # Preferred: all cells in one atomic snapshot
             self._handle_415a(data)
@@ -174,10 +222,11 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
                 node_configs = build_node_discovery_configs(
                     n, self._system_name, self._sys_id
                 )
-                self._publisher.publish_node_discovery(node_configs)
+                sent = self._publisher.publish_node_discovery(node_configs)
                 logging.getLogger(__name__).info(
-                    "New node discovered via 0x415A: id=%d — published %d entities",
-                    n, len(node_configs),
+                    "New node discovered via 0x415A: id=%d — %s %d entities",
+                    n, "published" if sent else "QUEUED (MQTT not connected):",
+                    len(node_configs),
                 )
 
             state_updates.update({
@@ -204,10 +253,11 @@ class BatriumUdpProtocol(asyncio.DatagramProtocol):
             node_configs = build_node_discovery_configs(
                 node_id, self._system_name, self._sys_id
             )
-            self._publisher.publish_node_discovery(node_configs)
+            sent = self._publisher.publish_node_discovery(node_configs)
             logging.getLogger(__name__).info(
-                "New node discovered: id=%d — published %d discovery entities",
-                node_id, len(node_configs),
+                "New node discovered: id=%d — %s %d discovery entities",
+                node_id, "published" if sent else "QUEUED (MQTT not connected):",
+                len(node_configs),
             )
 
         # Flatten per-cell fields into state with cell_{id}_ prefix

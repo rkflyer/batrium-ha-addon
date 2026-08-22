@@ -1,3 +1,10 @@
+## 1.0.6
+
+- Fix: an MQTT connection the broker refuses is now explained instead of numbered. `MQTT connect failed (rc=5)` becomes "the broker refused the connection as not authorised", plus what to check — `rc=4` and `rc=5` mean the credentials were rejected, and with the Mosquitto addon that is almost always a blank or non-existent `mqtt_username`/`mqtt_password`.
+- Fix: the addon no longer claims to have published entities it has not published. Discovery configs for a newly-seen node are queued when MQTT is down (correct, and unchanged) but were logged as "published ... entities" regardless. An addon that had never once reached the broker still produced a log full of apparent success, so the visible symptom pointed at the Batrium side while the real fault was the broker.
+- Add: while data is arriving and MQTT has never connected, the addon says so — "Receiving Batrium data, but MQTT has never connected — NOTHING has reached Home Assistant". It repeats every 5 minutes rather than firing once, because whoever is debugging pastes an arbitrary slice of the log and the reason needs to be in it.
+- Internal: a refused connect logged twice per retry (once from the connect callback, once from the disconnect callback that follows it). The second is now debug-level; the first says everything useful.
+
 ## 1.0.5
 
 - Add: the log now names each Batrium message type the first time it arrives — `Receiving 0x3E33 PackStats (48 bytes)`. Which messages a WatchMon transmits varies by generation and firmware, and until now an entity that never populated looked the same whether the data was never sent, arrived too short to decode, or arrived in a message type this addon does not recognise. One line per type at startup, at the default log level, tells you which.

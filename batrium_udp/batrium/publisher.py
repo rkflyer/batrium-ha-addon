@@ -18,6 +18,25 @@ _LOGGER = logging.getLogger(__name__)
 
 PUBLISH_INTERVAL = 1.0  # seconds
 
+# CONNACK return codes (MQTT 3.1.1 / paho-mqtt 1.x). Reported as a bare number
+# until 1.0.6, which is useless to anyone who does not already know the table —
+# and rc=5 in particular has exactly one cause, so leaving it as "rc=5" turned a
+# solvable config mistake into a bug report.
+CONNACK_MEANING = {
+    1: "the broker rejected the MQTT protocol version",
+    2: "the broker rejected this client ID",
+    3: "the broker is unavailable",
+    4: "the broker rejected the username/password",
+    5: "the broker refused the connection as not authorised",
+}
+
+# Appended for the two codes a user can actually act on.
+CREDENTIAL_HINT = (
+    " Check the addon's mqtt_username / mqtt_password. With the Mosquitto addon "
+    "these must be a Home Assistant user that exists — leaving them blank, or "
+    "using an account Mosquitto does not accept, produces exactly this error."
+)
+
 
 class BatriumPublisher:
     def __init__(
@@ -55,7 +74,16 @@ class BatriumPublisher:
         self._state: dict       = {}
         self._state_lock        = threading.Lock()
         self._connected         = False
+        # Distinct from _connected: has a connection EVER succeeded? A broker that
+        # refuses us from the start looks the same as one we lost, but only the
+        # first case means nothing has ever reached Home Assistant.
+        self._ever_connected    = False
         self._timer: threading.Timer | None = None
+
+    @property
+    def ever_connected(self) -> bool:
+        """True once a connection has succeeded at least once since startup."""
+        return self._ever_connected
 
     # ------------------------------------------------------------------
     # Public API
@@ -81,7 +109,7 @@ class BatriumPublisher:
         with self._state_lock:
             self._state.update(updates)
 
-    def publish_node_discovery(self, configs: list[tuple[str, str]]) -> None:
+    def publish_node_discovery(self, configs: list[tuple[str, str]]) -> bool:
         """
         Publish discovery configs for a newly-seen node.
 
@@ -89,24 +117,41 @@ class BatriumPublisher:
         on every future reconnect (HA forgets retained topics on restart
         if we don't re-publish them).
 
+        Returns True if the configs went out now, False if they were only
+        queued because MQTT is not connected. The caller needs to know which:
+        until 1.0.6 it logged "published" either way, so an addon that had never
+        reached the broker still reported publishing entities for every node it
+        found — which reads as working, and sent at least one user hunting the
+        wrong fault entirely.
+
         Safe to call from any thread.
         """
         with self._discovery_lock:
             self._discovery_configs.extend(configs)
-        if self._connected:
-            for topic, payload in configs:
-                self._client.publish(topic, payload, retain=True)
-                _LOGGER.debug("Node discovery published: %s", topic)
+        if not self._connected:
+            return False
+        for topic, payload in configs:
+            self._client.publish(topic, payload, retain=True)
+            _LOGGER.debug("Node discovery published: %s", topic)
+        return True
 
     # ------------------------------------------------------------------
     # MQTT callbacks
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc != 0:
-            _LOGGER.error("MQTT connect failed (rc=%d) — will retry", rc)
+            reason = CONNACK_MEANING.get(rc, "the broker refused the connection")
+            hint = CREDENTIAL_HINT if rc in (4, 5) else ""
+            _LOGGER.error(
+                "MQTT connect to %s:%d failed — %s (rc=%d). Nothing can be "
+                "published until this is fixed, so no entities will appear in "
+                "Home Assistant.%s Retrying.",
+                self._host, self._port, reason, rc, hint,
+            )
             return
         _LOGGER.info("MQTT connected to %s:%d", self._host, self._port)
         self._connected = True
+        self._ever_connected = True
 
         # Publish all discovery configs (pack-level + any per-node already seen)
         with self._discovery_lock:
@@ -122,7 +167,14 @@ class BatriumPublisher:
         self._schedule_publish()
 
     def _on_disconnect(self, client, userdata, rc):
-        _LOGGER.warning("MQTT disconnected (rc=%d) — paho will reconnect", rc)
+        # paho fires on_disconnect after a REFUSED connect too, carrying the same
+        # CONNACK code — so a broker rejecting us produced two log lines per retry
+        # saying the same thing in different words. _on_connect has already
+        # explained it properly; don't say it again in a less useful form.
+        if not self._ever_connected:
+            _LOGGER.debug("MQTT disconnect callback (rc=%d) after a refused connect", rc)
+        else:
+            _LOGGER.warning("MQTT disconnected (rc=%d) — paho will reconnect", rc)
         self._connected = False
         self._cancel_timer()
 
